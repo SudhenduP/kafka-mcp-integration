@@ -1,0 +1,7 @@
+{
+  "brokers": ["localhost:9092"],
+  "clientId": "kafka-mcp-server",
+  "groupId": "kafka-mcp-group",
+  "ssl": false,
+  "sasl": null
+}

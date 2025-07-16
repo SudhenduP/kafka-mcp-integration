@@ -1,0 +1,30 @@
+{
+  "server": {
+    "name": "kafka-mcp-server",
+    "version": "1.0.0",
+    "description": "MCP Server for Kafka Integration"
+  },
+  "logging": {
+    "level": "info",
+    "file": "logs/mcp-server.log"
+  },
+  "tools": {
+    "analyze_consumer_lag": {
+      "enabled": true,
+      "timeout": 30000
+    },
+    "check_topic_health": {
+      "enabled": true,
+      "timeout": 30000
+    },
+    "inspect_messages": {
+      "enabled": true,
+      "timeout": 30000,
+      "maxMessages": 100
+    },
+    "analyze_broker_performance": {
+      "enabled": true,
+      "timeout": 30000
+    }
+  }
+}
