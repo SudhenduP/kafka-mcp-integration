@@ -1,0 +1,299 @@
+# Git Repository Cleanup Guide
+
+## Step 1: Create .gitignore File
+
+Create `.gitignore` in your project root:
+
+```gitignore
+# Node.js dependencies
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# TypeScript compiled output
+dist/
+build/
+*.js
+*.js.map
+*.d.ts
+*.d.ts.map
+
+# Exclude TypeScript source files from ignore (we want these)
+!src/**/*.ts
+!scripts/**/*.ps1
+!docker/**/*.yml
+!docker/**/*.sh
+!config/**/*.json
+!*.md
+
+# Docker data
+kafka-data/
+zookeeper-data/
+docker/kafka-data/
+docker/zookeeper-data/
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Runtime data
+pids/
+*.pid
+*.seed
+*.pid.lock
+
+# Coverage directory used by tools like istanbul
+coverage/
+*.lcov
+
+# nyc test coverage
+.nyc_output/
+
+# Dependency directories
+node_modules/
+jspm_packages/
+
+# Optional npm cache directory
+.npm
+
+# Optional eslint cache
+.eslintcache
+
+# Output of 'npm pack'
+*.tgz
+
+# Yarn Integrity file
+.yarn-integrity
+
+# dotenv environment variables file
+.env
+.env.test
+
+# parcel-bundler cache (https://parceljs.org/)
+.cache
+.parcel-cache
+
+# next.js build output
+.next
+
+# nuxt.js build output
+.nuxt
+
+# vuepress build output
+.vuepress/dist
+
+# Serverless directories
+.serverless/
+
+# FuseBox cache
+.fusebox/
+
+# DynamoDB Local files
+.dynamodb/
+
+# TernJS port file
+.tern-port
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+
+# OS generated files
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Windows
+desktop.ini
+
+# Temporary files
+tmp/
+temp/
+```
+
+## Step 2: Clean Up Existing Files
+
+```powershell
+# Navigate to project root
+cd C:\Users\Sudhendu\Documents\mcprelated\mcp-servers\kafka\kafka-mcp-integration
+
+# Remove all compiled output
+if (Test-Path "mcp-server\dist") { Remove-Item -Recurse -Force "mcp-server\dist" }
+if (Test-Path "mcp-client\dist") { Remove-Item -Recurse -Force "mcp-client\dist" }
+
+# Remove all node_modules
+if (Test-Path "mcp-server\node_modules") { Remove-Item -Recurse -Force "mcp-server\node_modules" }
+if (Test-Path "mcp-client\node_modules") { Remove-Item -Recurse -Force "mcp-client\node_modules" }
+
+# Remove Docker data directories
+if (Test-Path "docker\kafka-data") { Remove-Item -Recurse -Force "docker\kafka-data" }
+if (Test-Path "docker\zookeeper-data") { Remove-Item -Recurse -Force "docker\zookeeper-data" }
+if (Test-Path "kafka-data") { Remove-Item -Recurse -Force "kafka-data" }
+if (Test-Path "zookeeper-data") { Remove-Item -Recurse -Force "zookeeper-data" }
+
+# Remove log files
+Get-ChildItem -Path . -Include "*.log" -Recurse | Remove-Item -Force
+Get-ChildItem -Path . -Include "npm-debug.log*" -Recurse | Remove-Item -Force
+
+# Remove any other temporary files
+if (Test-Path "tmp") { Remove-Item -Recurse -Force "tmp" }
+if (Test-Path "temp") { Remove-Item -Recurse -Force "temp" }
+if (Test-Path "logs") { Remove-Item -Recurse -Force "logs" }
+```
+
+## Step 3: Verify Essential Files Only
+
+After cleanup, you should have ONLY these files:
+
+```
+kafka-mcp-integration/
+├── .gitignore                  # ✅ NEW - Git ignore rules
+├── README.md                   # ✅ KEEP - Documentation
+├── docker/
+│   ├── docker-compose.yml      # ✅ KEEP - Docker config
+│   └── kafka-setup.sh          # ✅ KEEP - Setup script
+├── mcp-server/
+│   ├── package.json            # ✅ KEEP - Dependencies
+│   ├── tsconfig.json           # ✅ KEEP - TypeScript config
+│   └── src/                    # ✅ KEEP - Source code
+│       ├── index.ts
+│       ├── server.ts
+│       ├── tools/
+│       ├── kafka/
+│       └── types/
+├── mcp-client/
+│   ├── package.json            # ✅ KEEP - Dependencies
+│   ├── tsconfig.json           # ✅ KEEP - TypeScript config
+│   └── src/                    # ✅ KEEP - Source code
+│       ├── index.ts
+│       ├── client.ts
+│       └── demo.ts
+├── config/
+│   ├── kafka.json              # ✅ KEEP - Configuration
+│   └── mcp-server.json         # ✅ KEEP - Configuration
+└── scripts/
+    ├── setup.ps1               # ✅ KEEP - Automation
+    ├── start-kafka.ps1          # ✅ KEEP - Automation
+    ├── start-mcp-server.ps1     # ✅ KEEP - Automation
+    └── demo.ps1                 # ✅ KEEP - Automation
+```
+
+**Total files should be ~20-30 files, not 1000+**
+
+## Step 4: Count Files to Verify
+
+```powershell
+# Count all files (should be much less now)
+(Get-ChildItem -Recurse -File | Measure-Object).Count
+
+# List all files to verify
+Get-ChildItem -Recurse -File | Select-Object FullName
+```
+
+## Step 5: Initialize Git Repository
+
+```bash
+# Initialize git (if not already done)
+git init
+
+# Add .gitignore first
+git add .gitignore
+git commit -m "Add .gitignore"
+
+# Add all source files
+git add .
+git commit -m "Initial commit: Kafka MCP Integration source code"
+
+# Verify what's staged
+git status
+git ls-files
+```
+
+## Step 6: Update README with Build Instructions
+
+Add this section to your README.md:
+
+```markdown
+## 🏗️ Build Instructions
+
+After cloning the repository, users need to build the project:
+
+### Prerequisites
+- Node.js (v16 or higher)
+- Docker Desktop
+
+### Build Steps
+```powershell
+# Install and build MCP Server
+cd mcp-server
+npm install
+npm run build
+
+# Install and build MCP Client  
+cd ../mcp-client
+npm install
+npm run build
+
+# Return to project root
+cd ..
+
+# Start infrastructure
+./scripts/setup.ps1
+./scripts/start-kafka.ps1
+```
+
+### What Gets Created During Build
+- `mcp-server/dist/` - Compiled TypeScript server
+- `mcp-client/dist/` - Compiled TypeScript client  
+- `mcp-server/node_modules/` - Server dependencies
+- `mcp-client/node_modules/` - Client dependencies
+- `docker/kafka-data/` - Kafka data (when running)
+- `docker/zookeeper-data/` - Zookeeper data (when running)
+
+**Note:** These directories are ignored by Git and created automatically during build.
+```
+
+## Step 7: Final Verification
+
+```powershell
+# Check final file count
+Write-Host "Total files in repository:"
+(Get-ChildItem -Recurse -File | Measure-Object).Count
+
+# Should be around 20-30 files, not 1000+
+
+# Check what Git will track
+git ls-files | Measure-Object -Line
+```
+
+## What Users Will Do After Cloning
+
+When users clone your repository, they'll run:
+
+```powershell
+git clone <your-repo-url>
+cd kafka-mcp-integration
+
+# Build everything
+cd mcp-server && npm install && npm run build
+cd ../mcp-client && npm install && npm run build
+cd ..
+
+# Start using
+./scripts/setup.ps1
+./scripts/start-kafka.ps1
+./scripts/start-mcp-server.ps1
+```
+
+This approach gives users the source code and lets them compile their own working version, while keeping your repository clean and focused on the essential files only.

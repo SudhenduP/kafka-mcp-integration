@@ -41,20 +41,24 @@ export class KafkaMCPServer {
       
       try {
         const result = await this.toolRegistry.executeTool(name, args || {});
+        
+        // Ensure result is properly serialized
+        const serializedResult = typeof result === 'string' ? result : JSON.stringify(result, null, 2);
+        
         return {
           content: [
             {
               type: 'text',
-              text: JSON.stringify(result, null, 2),
+              text: serializedResult,
             },
           ],
         };
-      } catch (error) {
+      } catch (error: any) {
         return {
           content: [
             {
               type: 'text',
-              text: `Error executing tool '${name}': ${error}`,
+              text: `Error executing tool '${name}': ${error.message || error}`,
             },
           ],
           isError: true,

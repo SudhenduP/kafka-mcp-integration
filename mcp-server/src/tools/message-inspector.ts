@@ -41,61 +41,158 @@ export class MessageInspectorTool {
     limit?: number; 
     fromOffset?: string 
   }): Promise<any> {
-    const consumer = this.clientManager.getKafka().consumer({ 
-      groupId: `mcp-inspector-${Date.now()}-${Math.random().toString(36).substr(2, 9)}` 
-    });
-
+    let consumer: Consumer | null = null;
+    
     try {
-      await consumer.connect();
+      // Check if topic exists first
+      const kafka = this.clientManager.getKafka();
+      const admin = kafka.admin();
       
+      try {
+        await admin.connect();
+        const topics = await admin.listTopics();
+        
+        if (!topics.includes(args.topic)) {
+          await admin.disconnect();
+          return {
+            error: `Topic '${args.topic}' does not exist`,
+            availableTopics: topics,
+            timestamp: new Date().toISOString()
+          };
+        }
+        
+        await admin.disconnect();
+      } catch (adminError) {
+        console.error('Admin connection error:', adminError);
+        // Continue anyway, might be a connectivity issue
+      }
+
+      // Create consumer with more robust configuration
+      const groupId = `mcp-inspector-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      consumer = kafka.consumer({ 
+        groupId,
+        sessionTimeout: 30000,
+        heartbeatInterval: 3000,
+        maxWaitTimeInMs: 5000,
+        retry: {
+          retries: 3,
+          initialRetryTime: 100,
+          maxRetryTime: 30000
+        }
+      });
+
       const limit = Math.min(args.limit || 10, 100);
       const messages: MessageSample[] = [];
+      let isConnected = false;
 
-      await consumer.subscribe({ topic: args.topic });
+      // Connect with timeout
+      await Promise.race([
+        consumer.connect(),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Consumer connection timeout')), 10000)
+        )
+      ]);
+      
+      isConnected = true;
 
-      return new Promise((resolve, reject) => {
+      // Subscribe to topic
+      await consumer.subscribe({ 
+        topic: args.topic,
+        fromBeginning: args.fromOffset === 'earliest' || args.fromOffset === '0'
+      });
+
+      // Use Promise to handle message collection with proper timeout
+      const result = await new Promise<any>((resolve, reject) => {
         const timeout = setTimeout(() => {
-          reject(new Error('Timeout waiting for messages'));
-        }, 30000); // 30 second timeout
+          resolve({
+            topic: args.topic,
+            messages: messages.slice(0, limit),
+            sampleSize: messages.length,
+            requestedLimit: limit,
+            timestamp: new Date().toISOString(),
+            note: messages.length === 0 ? 'No messages found in the specified time window' : undefined
+          });
+        }, 15000); // 15 second timeout
 
-        consumer.run({
+        let isResolved = false;
+
+        consumer!.run({
           eachMessage: async ({ topic, partition, message }) => {
-            if (args.partition !== undefined && partition !== args.partition) {
-              return;
+            try {
+              // Filter by partition if specified
+              if (args.partition !== undefined && partition !== args.partition) {
+                return;
+              }
+
+              const sample: MessageSample = {
+                partition,
+                offset: parseInt(message.offset),
+                key: message.key?.toString(),
+                value: this.parseMessageValue(message.value),
+                timestamp: new Date(parseInt(message.timestamp)),
+                headers: this.parseHeaders(message.headers)
+              };
+
+              messages.push(sample);
+
+              // Stop when we have enough messages
+              if (messages.length >= limit && !isResolved) {
+                isResolved = true;
+                clearTimeout(timeout);
+                resolve({
+                  topic: args.topic,
+                  messages: messages.slice(0, limit),
+                  sampleSize: messages.length,
+                  requestedLimit: limit,
+                  timestamp: new Date().toISOString()
+                });
+              }
+            } catch (messageError) {
+              // Continue processing other messages
             }
-
-            const sample: MessageSample = {
-              partition,
-              offset: parseInt(message.offset),
-              key: message.key?.toString(),
-              value: this.parseMessageValue(message.value),
-              timestamp: new Date(parseInt(message.timestamp)),
-              headers: this.parseHeaders(message.headers)
-            };
-
-            messages.push(sample);
-
-            if (messages.length >= limit) {
-              clearTimeout(timeout);
-              resolve({
-                topic: args.topic,
-                messages,
-                sampleSize: messages.length,
-                requestedLimit: limit,
-                timestamp: new Date().toISOString()
-              });
-            }
+          }
+        }).catch((runError) => {
+          if (!isResolved) {
+            isResolved = true;
+            clearTimeout(timeout);
+            reject(new Error(`Consumer run failed: ${runError.message}`));
           }
         });
       });
 
-    } catch (error) {
-      throw new Error(`Failed to inspect messages: ${error}`);
+      return result;
+
+    } catch (error: any) {
+      
+      // Provide more specific error messages
+      if (error.message && error.message.includes('timeout')) {
+        return {
+          error: `Timeout while inspecting messages from topic '${args.topic}'`,
+          suggestion: 'Try again or check if the topic has recent messages',
+          timestamp: new Date().toISOString()
+        };
+      }
+      
+      if (error.message && error.message.includes('coordinator')) {
+        return {
+          error: `Failed to find group coordinator for topic '${args.topic}'`,
+          suggestion: 'Check if Kafka cluster is healthy and accessible',
+          timestamp: new Date().toISOString()
+        };
+      }
+
+      throw new Error(`Failed to inspect messages: ${error.message || 'Unknown error'}`);
     } finally {
-      try {
-        await consumer.disconnect();
-      } catch (e) {
-        // Ignore disconnect errors
+      // Ensure consumer is properly disconnected
+      if (consumer) {
+        try {
+          await Promise.race([
+            consumer.disconnect(),
+            new Promise((resolve) => setTimeout(resolve, 5000)) // 5 second timeout for disconnect
+          ]);
+        } catch (disconnectError) {
+          // Don't throw here, just ignore disconnect errors
+        }
       }
     }
   }
@@ -104,9 +201,12 @@ export class MessageInspectorTool {
     if (!value) return null;
     
     const stringValue = value.toString();
+    
+    // Try to parse as JSON first
     try {
       return JSON.parse(stringValue);
     } catch {
+      // If not JSON, return as string
       return stringValue;
     }
   }
@@ -115,9 +215,19 @@ export class MessageInspectorTool {
     if (!headers) return undefined;
     
     const parsed: Record<string, string> = {};
-    for (const [key, value] of Object.entries(headers)) {
-      parsed[key] = value ? value.toString() : '';
+    try {
+      for (const [key, value] of Object.entries(headers)) {
+        if (value && Buffer.isBuffer(value)) {
+          parsed[key] = value.toString();
+        } else if (value) {
+          parsed[key] = value.toString();
+        } else {
+          parsed[key] = '';
+        }
+      }
+      return Object.keys(parsed).length > 0 ? parsed : undefined;
+    } catch (error) {
+      return undefined;
     }
-    return parsed;
   }
 }
